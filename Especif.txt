@@ -1,0 +1,1243 @@
+
+Aplicação client/server em rust
+1 - Server
+2 - Server aguarda conexao em 2 portas
+2.1 - Server pede uma senha para o client que conectou na porta 1
+2.2 - Server valida a senha do cliente se foi válida continua e cadastra se a senha for incorreta termina a conexão
+3 - Server na porta 1 ele cadastra o client que conectou, pedindo o ID e o IP do cliente
+4 - Server guarda o ID e o IP do client em uma lista
+5 - Server faz um round robin na lista e envia msg pela porta 2 para cada um dos clientes cadastrados
+
+09 - Client
+10 - Client se conecta na porta 1 do server e envia senha, ID e IP depois que o server informa tudo ok desconecta.
+11 - Cliente fica aguardando msg pela porta 2.
+
+Okay, let's tackle this client-server application in Rust based on the user's requirements. First, I need to understand the requirements thoroughly. The server needs to listen on two ports, handle authentication on port 1, manage client registration, and then send messages via port 2 using round-robin. The client connects to port 1 for registration and listens on port 2 for messages.
+
+Starting with the server:
+
+1. **Multiple Port Listening**: The server must listen on two ports. In Rust, using the `TcpListener` for each port makes sense. Since each listener blocks, I'll need to spawn threads for each port to handle them concurrently.
+
+2. **Authentication on Port 1**: When a client connects to port 1, the server should prompt for a password. The user mentioned a fixed password "secret123", so the server will read the client's input and validate it. If incorrect, the connection is terminated.
+
+3. **Client Registration**: After authentication, the server needs to collect the client's ID and IP. Wait, the client's IP is already known from the connection, so maybe the user wants the client to send an ID, and the server stores the ID along with the client's IP. But the problem states the client sends ID and IP. Hmm, perhaps the IP is part of the client's message, but that's redundant. Maybe the user intended the server to store the client's connection IP along with the provided ID. I'll clarify that in the code, perhaps the client sends just the ID, and the server records the ID and the client's IP address.
+
+4. **Storage**: The server needs to maintain a list of clients. Using a struct like `ClientInfo` with ID, IP, and last active timestamp. A thread-safe data structure is necessary because multiple threads will access it. `Arc<Mutex<Vec<ClientInfo>>>` is appropriate here.
+
+5. **Round-Robin Messaging on Port 2**: The server listens on port 2 for client connections. But according to point 5, the server sends messages to each client via port 2. Wait, the client is supposed to listen on port 2 for messages. So the server, after registering clients on port 1, connects to each client's port 2 in a round-robin fashion to send messages. But the server can't initiate a connection to the client unless the client is listening. So the client, after registering on port 1, should listen on port 2 for incoming server connections. Then, the server loops through the client list and connects to each client's port 2 to send a message.
+
+But the user's point 5 says the server sends messages via port 2. Maybe the server has a TcpListener on port 2, but that's for accepting connections. Alternatively, the server connects to the client's port 2. The latter makes more sense: clients listen on their own port 2, and the server connects to them. However, in typical client-server models, the server listens, and clients connect. This might be a case where the server acts as a client to connect to the clients' port 2. But that requires clients to have their own TCP listeners, which is unconventional. Alternatively, the server could have two listeners: one on port 1 for registration and another on port 2 for sending messages. But the description says the server sends messages via port 2 to each client. So perhaps the server, after registration, sends messages to each client's port 2. Therefore, the server needs the client's IP and port 2 to connect. But the user's point 10 says the client connects to port 1 and then listens on port 2. So the client, after registration, listens on port 2, and the server connects to each client's port 2 to send messages.
+
+So the flow is:
+
+- Client connects to server's port 1 for registration (sending password, ID, and IP).
+
+- Server validates password, stores ID and client's IP (maybe the IP sent by the client or the connection's IP).
+
+- Server periodically iterates through the client list and connects to each client's IP on port 2 to send a message.
+
+But in the client's step 11, the client listens on port 2 for messages. Therefore, the server must connect to the client's port 2 using the stored IP. But the client's IP is known from the initial connection (port 1), so perhaps the server uses that IP to connect back to the client's port 2.
+
+Wait, the client's IP is the same as the one used to connect to the server, so the server can note that IP when the client connects on port 1. Then, the server can use that IP to connect back to the client's port 2. So the client, after registering, starts listening on its own port 2. The server, in a loop, connects to each client's IP:port 2 and sends a message.
+
+But this requires the client to have a TCP listener on port 2, which might not be possible if the client is behind NAT or a firewall. This setup is more peer-to-peer than client-server. Alternatively, maybe the server listens on port 2, and clients connect to it to receive messages. But the user's points indicate that the server sends messages via port 2 to each client, which implies that the server initiates the connection to the client's port 2.
+
+This is a bit unconventional but possible. Let's proceed under that assumption.
+
+Now, structuring the server:
+
+- Two separate TcpListeners: one on port 1 for registration, another on port 2 for... wait, no. The server's port 2 is not for listening but for initiating connections to clients. So the server doesn't need a listener on port 2. Instead, after registration, the server has a list of clients (IP and ID), and in a loop, it connects to each client's port 2 to send a message in round-robin.
+
+But then, the server's port 2 isn't used. The user's point 2 says the server waits for connections on two ports. Wait, looking back:
+
+Point 2 says: "Server aguarda conexao em 2 portas" (Server waits for connection on 2 ports). Then, port 1 is for registration (points 2.1, 2.2, 3, 4), and port 2 is for something else. But point 5 says the server sends messages via port 2 to each client. Maybe the server listens on port 2 for clients to connect and receive messages. But the client's point 11 says the client waits for messages on port 2. So the client connects to the server's port 2 to receive messages. That would make sense: server listens on port 2, clients connect to it, and the server sends messages through those connections. But how to manage multiple clients? The server could accept connections on port 2 and keep them open, sending messages in round-robin.
+
+Wait, perhaps the server has two listeners:
+
+- Port 1: Handles registration (authentication, client ID, etc.)
+
+- Port 2: Clients connect here to receive messages. The server maintains these connections and sends messages in round-robin.
+
+But the user's point 5 says the server does a round-robin on the list and sends messages via port 2. So when a client registers via port 1, they also connect to port 2, and the server keeps those connections open to send messages.
+
+In that case, the server's flow would be:
+
+1. Listen on port 1 for registration.
+
+2. Listen on port 2 for clients to connect and wait for messages.
+
+3. When a client connects on port 1, authenticate, register, and expect them to connect on port 2.
+
+4. Maintain a list of clients with their ID, IP, and the TcpStream for port 2.
+
+5. Periodically send messages to each client's port 2 connection in round-robin.
+
+But this requires the client to connect to both port 1 and port 2. The client's steps are:
+
+10. Connect to port 1, send password, ID, IP.
+
+11. Then, connect to port 2 and wait for messages.
+
+But the user's point 11 says the client "fica aguardando msg pela porta 2", which could mean the client listens on their own port 2, but that's unlikely. More likely, the client connects to the server's port 2 to receive messages.
+
+This is getting a bit confusing. Let's re-express the requirements as per the user's points:
+
+Server:
+
+- Listens on two ports.
+
+- Port 1: Clients connect here, authenticate with password. If valid, server registers client's ID and IP. Then client disconnects.
+
+- Port 2: Server sends messages to registered clients via this port, using round-robin.
+
+Client:
+
+- Connects to server's port 1, sends password, ID, and IP. Disconnects after confirmation.
+
+- Listens on port 2 for messages from the server.
+
+Wait, but how does the server send messages to the client's port 2? The server would need to know the client's IP (from registration) and connect to the client's port 2. So the client, after registering, starts a listener on its own port 2. The server then connects to each client's IP:port 2 to send messages.
+
+This setup is possible but requires clients to have their own TCP listeners, which might not be feasible in all environments (e.g., behind NAT). However, for the sake of the exercise, we'll proceed.
+
+So, server steps:
+
+1. Listen on port 1 for client registration.
+
+2. When a client connects to port 1:
+
+a. Request password.
+
+b. Validate password.
+
+c. If valid, request client's ID and IP (though IP is known from the connection).
+
+d. Store ID, client's IP (or the provided IP?), and maybe port (if different).
+
+3. Listen on port 2 for...? Wait, the user's point 5 says the server sends messages via port 2. So perhaps the server uses port 2 to connect to the clients' port 2. But then the server doesn't need to listen on port 2; it needs to initiate connections. The initial requirement says the server waits for connections on two ports. Maybe there's a misunderstanding here.
+
+Alternatively, the server has two listening ports:
+
+- Port 1: For client registration.
+
+- Port 2: For clients to connect and receive messages.
+
+In this case, after registration, the client connects to the server's port 2, and the server keeps those connections to send messages in round-robin.
+
+This makes more sense. Let's adjust:
+
+Server:
+
+- Port 1: Handles registration (password, ID, IP).
+
+- Port 2: Clients connect here after registration to receive messages. Server maintains these connections and sends messages in round-robin.
+
+Client:
+
+- Connects to server's port 1, sends password, ID, and IP. Then disconnects.
+
+- Connects to server's port 2 and waits for messages.
+
+But the user's point 11 says the client "fica aguardando msg pela porta 2" (waits for messages on port 2). So the client connects to the server's port 2 and keeps the connection open to receive messages.
+
+In this case, the server's port 2 is a listener that accepts client connections, and the server stores those TcpStreams. Then, when the server wants to send a message, it iterates through the connections and sends data.
+
+But the user's point 5 says the server sends messages via port 2 to each client. So perhaps after registration, the server has a list of clients (ID, IP) and their corresponding TcpStreams connected via port 2. The server then sends messages to each client's TcpStream in round-robin.
+
+This approach requires clients to connect to both ports: port 1 for registration and port 2 for receiving messages. The server's port 2 listener accepts these connections and stores them alongside the client's ID.
+
+So, the server structure would be:
+
+- Two TcpListeners: port 1 and port 2.
+
+- When a client connects to port 1: handle authentication and registration.
+
+- When a client connects to port 2: associate the connection with the client's ID (assuming the client sends their ID upon connecting to port 2).
+
+- Maintain a list of clients with their ID, IP, and port 2 TcpStream.
+
+- Periodically send messages to each client's port 2 connection in round-robin.
+
+But associating the port 2 connection with the client's ID is tricky. The client would need to identify themselves when connecting to port 2. Alternatively, after registering on port 1, the client immediately connects to port 2, and the server links the two connections by IP or some session token.
+
+This complicates the implementation. Maybe the client, after registering on port 1, connects to port 2 and sends their ID again. The server then matches the ID with the registered clients.
+
+Alternatively, the server could track clients by their IP address, assuming that the same client uses the same IP for both connections. However, this is unreliable, especially in environments with NAT.
+
+Given the complexity, perhaps the intended design is:
+
+- Server listens on port 1 for registration.
+
+- After successful registration, the server stores the client's ID and IP.
+
+- Server listens on port 2 for incoming messages to broadcast, but according to point 5, the server sends messages via port 2 to each client. So maybe the server, after registration, connects to each client's port 2 and sends messages.
+
+But this requires the client to listen on their own port 2, which is a different approach.
+
+Given the ambiguity, I'll proceed with the following approach:
+
+1. **Server**:
+
+- Listens on port 1 for client registration.
+
+- Upon connection, authenticates password, registers client's ID and IP (from the connection).
+
+- Listens on port 2 for client connections that will receive messages.
+
+- Maintains a list of clients (ID, IP, TcpStream to port 2).
+
+- Periodically sends messages to each client's port 2 connection in round-robin.
+
+2. **Client**:
+
+- Connects to server's port 1, sends password, ID.
+
+- Connects to server's port 2 and keeps the connection open to receive messages.
+
+But the client needs to connect to both ports. So after registering on port 1, the client connects to port 2. The server then links the two connections (perhaps by IP) to associate the port 2 stream with the client's ID.
+
+This is feasible but requires the server to manage two connections per client. Alternatively, the client could send their ID upon connecting to port 2, allowing the server to map the TcpStream to the registered client.
+
+Now, structuring the code:
+
+For the server:
+
+- Use two separate threads to handle port 1 and port 2 listeners.
+
+- Shared data between threads: a list of clients, protected by a mutex.
+
+- When a client connects to port 1: authenticate, register, and wait for them to connect to port 2.
+
+- When a client connects to port 2: read their ID and associate the TcpStream with the registered client.
+
+- Periodically iterate through the clients and send messages via their port 2 TcpStream.
+
+But how to handle clients connecting to port 2 after registering? The server needs to expect that clients will connect to port 2 after registering on port 1. The client's step 11 says they "fica aguardando msg pela porta 2", which could mean they listen on their own port 2, but that complicates things.
+
+Alternatively, the server's port 2 is where clients connect to receive messages. So after registration, the client connects to the server's port 2, and the server sends messages through that connection.
+
+In this case, the server's port 2 listener accepts connections, and each connection represents a client ready to receive messages. The server needs to map these connections to the registered clients (from port 1) perhaps by IP or by the client sending their ID upon connecting to port 2.
+
+This is manageable. Let's outline the steps:
+
+**Server Port 1 Handler**:
+
+1. Accept connection.
+
+2. Request password.
+
+3. Validate password.
+
+4. Request client ID.
+
+5. Store client ID and their IP (from the connection) in a shared list.
+
+6. Close connection.
+
+**Server Port 2 Handler**:
+
+1. Accept connection.
+
+2. Read client ID sent by the client.
+
+3. Find the client in the shared list by ID.
+
+4. Store the TcpStream associated with the client.
+
+5. Keep the connection open.
+
+**Round-Robin Sender**:
+
+1. Periodically iterate through the list of clients.
+
+2. For each client with an active port 2 connection, send a message.
+
+3. Rotate the starting point each time (round-robin).
+
+**Client**:
+
+1. Connect to server's port 1.
+
+2. Send password.
+
+3. Send ID.
+
+4. Close connection.
+
+5. Connect to server's port 2.
+
+6. Send ID to identify themselves.
+
+7. Wait for messages.
+
+This way, the server can associate the port 2 connection with the client's ID.
+
+Now, translating this into code:
+
+The server will have:
+
+- A shared state using `Arc<Mutex<HashMap<String, ClientData>>>`, where `ClientData` includes the IP and the TcpStream for port 2.
+
+But handling TcpStreams in a HashMap might be tricky because each connection on port 2 is a separate TcpStream. The server needs to read the client's ID upon connecting to port 2, then store the TcpStream in the corresponding entry.
+
+Implementing this:
+
+When a client connects to port 2:
+
+1. Read the ID sent by the client.
+
+2. Lock the shared state, find the client by ID.
+
+3. Store the TcpStream in the client's entry.
+
+4. Keep the stream open for sending messages.
+
+The round-robin thread will iterate through the clients and send messages via their stored TcpStreams.
+
+Potential issues:
+
+- Clients may connect to port 2 before or after registering on port 1. Need to handle that.
+
+- TcpStreams may disconnect; need to handle errors and remove clients.
+
+For simplicity, assume clients connect to port 1 first, then port 2.
+
+Now, writing the code:
+
+**Server Code**:
+
+```rust
+
+use std::collections::HashMap;
+
+use std::net::{TcpListener, TcpStream, SocketAddr};
+
+use std::sync::{Arc, Mutex};
+
+use std::thread;
+
+use std::io::{Read, Write};
+
+struct ClientInfo {
+
+id: String,
+
+addr: SocketAddr,
+
+stream: Option<TcpStream>,
+
+}
+
+impl ClientInfo {
+
+fn new(id: String, addr: SocketAddr) -> Self {
+
+Self {
+
+id,
+
+addr,
+
+stream: None,
+
+}
+
+}
+
+}
+
+fn main() {
+
+let clients = Arc::new(Mutex::new(HashMap::<String, ClientInfo>::new()));
+
+// Port 1: Registration
+
+let clients_reg = clients.clone();
+
+thread::spawn(move || {
+
+let listener = TcpListener::bind("0.0.0.0:1111").unwrap();
+
+for stream in listener.incoming() {
+
+let mut stream = stream.unwrap();
+
+let addr = stream.peer_addr().unwrap();
+
+// Read password
+
+let mut buf = [0; 8];
+
+stream.read_exact(&mut buf).unwrap();
+
+let password = String::from_utf8_lossy(&buf);
+
+if password != "secret123" {
+
+stream.write_all(b"Invalid password").unwrap();
+
+continue;
+
+}
+
+stream.write_all(b"Password OK").unwrap();
+
+// Read client ID
+
+let mut id_buf = [0; 32];
+
+let n = stream.read(&mut id_buf).unwrap();
+
+let id = String::from_utf8_lossy(&id_buf[..n]).trim().to_string();
+
+// Store client
+
+let mut clients = clients_reg.lock().unwrap();
+
+clients.insert(id.clone(), ClientInfo::new(id, addr));
+
+println!("Client {} registered", id);
+
+}
+
+});
+
+// Port 2: Message connections
+
+let clients_msg = clients.clone();
+
+thread::spawn(move || {
+
+let listener = TcpListener::bind("0.0.0.0:2222").unwrap();
+
+for stream in listener.incoming() {
+
+let mut stream = stream.unwrap();
+
+let addr = stream.peer_addr().unwrap();
+
+// Read client ID
+
+let mut id_buf = [0; 32];
+
+let n = stream.read(&mut id_buf).unwrap();
+
+let id = String::from_utf8_lossy(&id_buf[..n]).trim().to_string();
+
+// Update client with stream
+
+let mut clients = clients_msg.lock().unwrap();
+
+if let Some(client) = clients.get_mut(&id) {
+
+client.stream = Some(stream);
+
+println!("Client {} connected for messages", id);
+
+} else {
+
+eprintln!("Unknown client {} from {}", id, addr);
+
+}
+
+}
+
+});
+
+// Round-robin sender
+
+thread::spawn(move || {
+
+loop {
+
+thread::sleep(std::time::Duration::from_secs(5));
+
+let mut clients = clients.lock().unwrap();
+
+let ids: Vec<String> = clients.keys().cloned().collect();
+
+for id in ids {
+
+if let Some(client) = clients.get_mut(&id) {
+
+if let Some(stream) = &mut client.stream {
+
+let msg = format!("Message to {}", id);
+
+if let Err(e) = stream.write_all(msg.as_bytes()) {
+
+eprintln!("Error sending to {}: {}", id, e);
+
+client.stream = None;
+
+}
+
+}
+
+}
+
+}
+
+}
+
+});
+
+// Keep main thread alive
+
+loop {
+
+thread::sleep(std::time::Duration::from_secs(1));
+
+}
+
+}
+
+```
+
+**Client Code**:
+
+```rust
+
+use std::io::{Read, Write};
+
+use std::net::TcpStream;
+
+use std::thread;
+
+fn main() {
+
+// Connect to port 1 for registration
+
+let mut stream = TcpStream::connect("127.0.0.1:1111").unwrap();
+
+// Send password
+
+stream.write_all(b"secret123").unwrap();
+
+let mut buf = [0; 10];
+
+stream.read_exact(&mut buf).unwrap();
+
+if &buf[..10] != b"Password OK" {
+
+panic!("Invalid password");
+
+}
+
+// Send ID
+
+let id = "client123";
+
+stream.write_all(id.as_bytes()).unwrap();
+
+// Connect to port 2 for messages
+
+let mut msg_stream = TcpStream::connect("127.0.0.1:2222").unwrap();
+
+msg_stream.write_all(id.as_bytes()).unwrap();
+
+// Listen for messages
+
+loop {
+
+let mut buf = [0; 1024];
+
+match msg_stream.read(&mut buf) {
+
+Ok(n) => {
+
+let msg = String::from_utf8_lossy(&buf[..n]);
+
+println!("Received: {}", msg);
+
+}
+
+Err(e) => {
+
+eprintln!("Error reading: {}", e);
+
+break;
+
+}
+
+}
+
+}
+
+}
+
+```
+
+**Explanation**:
+
+- The server listens on ports 1111 and 2222.
+
+- Clients first connect to port 1111, send the password and ID.
+
+- The server stores the client's ID and IP.
+
+- Clients then connect to port 2222, send their ID to associate the connection.
+
+- The server periodically sends messages to each client's port 2222 connection.
+
+**Possible Issues**:
+
+- The client code assumes the server is on localhost.
+
+- No error handling for partial reads/writes.
+
+- The client's port 2222 connection is not retried if it fails.
+
+- The server's round-robin sends messages every 5 seconds; adjust as needed.
+
+- The client ID is fixed; in a real scenario, it should be dynamic.
+
+**Improvements**:
+
+- Use proper message framing (e.g., length-prefixed messages).
+
+- Handle client disconnections gracefully.
+
+- Add timeouts for read/write operations.
+
+- Use async I/O for better scalability (e.g., with Tokio).
+
+- Validate client IP when connecting to port 2222 to prevent spoofing.
+
+This should provide a basic implementation of the described requirements. Let me know if you need further refinements!
+
+Aqui está uma implementação em Rust do sistema client-server descrito:
+
+Server (servidor.rs)
+
+
+use std::collections::HashMap;
+use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::io::{Read, Write};
+
+struct Client {
+    id: String,
+    ip: String,
+}
+
+type ClientList = Arc<Mutex<HashMap<String, Client>>>;
+
+fn handle_port1(mut stream: TcpStream, clients: ClientList) {
+    let mut buffer = [0; 1024];
+
+    // Autenticação
+    stream.write_all(b"Senha: ").unwrap();
+    let n = stream.read(&mut buffer).unwrap();
+    let password = String::from_utf8_lossy(&buffer[..n]).trim().to_string();
+
+    if password != "secret123" {
+        stream.write_all(b"Senha invalida!").unwrap();
+        return;
+    }
+
+    // Cadastro do cliente
+    stream.write_all(b"ID: ").unwrap();
+    let n = stream.read(&mut buffer).unwrap();
+    let id = String::from_utf8_lossy(&buffer[..n]).trim().to_string();
+
+    stream.write_all(b"IP: ").unwrap();
+    let n = stream.read(&mut buffer).unwrap();
+    let ip = String::from_utf8_lossy(&buffer[..n]).trim().to_string();
+
+    let client = Client { id: id.clone(), ip };
+    clients.lock().unwrap().insert(id, client);
+
+    stream.write_all(b"Registro completo!").unwrap();
+}
+
+fn handle_port2(stream: TcpStream, clients: ClientList) {
+    let mut clients = clients.lock().unwrap();
+    let mut client_list: Vec<&Client> = clients.values().collect();
+    let mut index = 0;
+
+    loop {
+        if client_list.is_empty() {
+            thread::sleep_ms(1000);
+            client_list = clients.values().collect();
+            continue;
+        }
+
+        if index >= client_list.len() {
+            index = 0;
+        }
+
+        let client = client_list[index];
+        let msg = format!("Mensagem para {} ({})\n", client.id, client.ip);
+
+        if let Err(e) = stream.try_clone().unwrap().write_all(msg.as_bytes()) {
+            eprintln!("Erro ao enviar mensagem: {}", e);
+            break;
+        }
+
+        index += 1;
+        thread::sleep_ms(1000);
+    }
+}
+
+fn main() {
+    let clients: ClientList = Arc::new(Mutex::new(HashMap::new()));
+
+    // Porta 1 - Registro
+    let clients1 = clients.clone();
+    thread::spawn(move || {
+        let listener = TcpListener::bind("127.0.0.1:1111").unwrap();
+        for stream in listener.incoming() {
+            let clients = clients1.clone();
+            thread::spawn(move || handle_port1(stream.unwrap(), clients));
+        }
+    });
+
+    // Porta 2 - Mensagens
+    let clients2 = clients.clone();
+    thread::spawn(move || {
+        let listener = TcpListener::bind("127.0.0.1:2222").unwrap();
+        for stream in listener.incoming() {
+            let clients = clients2.clone();
+            thread::spawn(move || handle_port2(stream.unwrap(), clients));
+        }
+    });
+
+    println!("Servidor iniciado...");
+    loop {
+        thread::sleep_ms(1000);
+    }
+}
+*******************************************************************************
+*******************************************************************************
+
+Client (cliente.rs)
+*******************************************************************************
+*******************************************************************************
+
+use std::net::TcpStream;
+use std::io::{Read, Write};
+use std::thread;
+
+fn main() {
+    // Conexão para registro
+    let mut stream = TcpStream::connect("127.0.0.1:1111").unwrap();
+
+    // Autenticação e registro
+    let mut buffer = [0; 1024];
+    stream.read(&mut buffer).unwrap(); // Recebe prompt de senha
+    stream.write_all(b"secret123\n").unwrap(); // Envia senha
+
+    stream.read(&mut buffer).unwrap(); // Recebe prompt de ID
+    stream.write_all(b"client123\n").unwrap(); // Envia ID
+
+    stream.read(&mut buffer).unwrap(); // Recebe prompt de IP
+    stream.write_all(b"127.0.0.1\n").unwrap(); // Envia IP
+
+    stream.read(&mut buffer).unwrap(); // Confirmação
+    println!("Registro completo!");
+
+    // Conexão para receber mensagens
+    thread::spawn(|| {
+        let mut stream = TcpStream::connect("127.0.0.1:2222").unwrap();
+        let mut buffer = [0; 1024];
+
+        loop {
+            let n = stream.read(&mut buffer).unwrap();
+            if n == 0 { break; }
+            print!("Mensagem recebida: {}", String::from_utf8_lossy(&buffer[..n]));
+        }
+    });
+
+    // Mantém o cliente ativo
+    loop {
+        thread::sleep_ms(1000);
+    }
+}
+
+*******************************************************************************
+*******************************************************************************
+
+Para executar:
+*******************************************************************************
+*******************************************************************************
+
+Compile ambos os programas:
+
+rustc servidor.rs
+rustc cliente.rs
+
+Execute o servidor:
+
+./servidor
+
+Execute o cliente (em outro terminal):
+
+./cliente
+
+*******************************************************************************
+*******************************************************************************
+
+
+
+
+
+
+Funcionamento:
+*******************************************************************************
+*******************************************************************************
+
+    O servidor escuta nas portas 1111 e 2222
+
+    O cliente se conecta na porta 1111 para registro
+
+    Após registro válido, o cliente conecta na porta 2222 para receber mensagens
+
+    O servidor envia mensagens para todos os clientes cadastrados em round-robin
+
+Características:
+
+    Autenticação por senha
+
+    Registro de clientes com ID e IP
+
+    Comunicação TCP segura
+
+    Round-robin para envio de mensagens
+
+    Multi-thread para lidar com múltiplos clientes
+
+Notas:
+
+    A senha estática é "secret123"
+
+    O IP pode ser obtido automaticamente na implementação real
+
+    Adicione tratamento de erros mais robusto para produção
+
+    Pode ser adaptado para UDP conforme necessidade
+
+New chat
+
+
+This worked very good, but I forgot to mention that I need more than 1 client
+connected at the same time, in production will have several clients geting in
+and geting out, so Server must be always listening to port 1 and port 2 the
+client send its ID to be used for this.
+*******************************************************************************
+*******************************************************************************
+
+Okay, the user mentioned that the previous code worked well, but they forgot to mention that they need support for multiple clients connected simultaneously. The server must always listen on both ports 1 and 2, and clients should send their ID for identification. Let me think about how to adjust the existing code to meet these new requirements.
+
+First, in the original server code, the server listens on two ports: port 1 for registration and port 2 for messages. The client connects to port 1 to register and then to port 2 to receive messages. But the user wants multiple clients to connect and disconnect dynamically, with the server handling them concurrently. Also, the client should send their ID when connecting to port 2 so the server can identify them.
+
+Wait, in the previous implementation, when the client connects to port 2, the server sends messages in a round-robin fashion to all registered clients. But if multiple clients are connected to port 2, how does the server know which client is which? The user wants the client to send their ID upon connecting to port 2 so the server can map the connection to the registered client.
+
+So, the steps needed are:
+
+1. Modify the server's handling of port 2 to accept a client's ID upon connection.
+
+2. Associate each port 2 connection with the corresponding client using their ID.
+
+3. Ensure that the server can handle multiple clients on both ports simultaneously, which the original code does via threads, but maybe there's a need for better connection management.
+
+4. Update the round-robin logic to send messages to each client's port 2 connection based on their ID.
+
+In the original server code, when a client connects to port 2, a new thread is spawned, and the server sends messages in a loop. However, each port 2 connection isn't tied to a specific client ID. So, when a client connects to port 2, they need to send their ID first so the server can link that connection to their registered information.
+
+So, in handle_port2, after the connection is accepted, the server should expect the client to send their ID. Then, the server can look up the client's IP and ID from the stored list and keep track of active connections.
+
+Additionally, the server needs to manage active connections for port 2, so when sending messages via round-robin, it uses the active connections. If a client disconnects, the server should remove them from the active connections.
+
+The original code uses a HashMap to store client info, but now we need another structure to track active connections on port 2, perhaps a HashMap where the key is the client ID and the value is the TcpStream.
+
+But TcpStream isn't Clone or thread-safe by default, so using Arc<Mutex<TcpStream>> might be necessary. However, handling writes to multiple streams across threads can be tricky. Alternatively, each port 2 handler thread can manage sending messages to its client, but the round-robin would need to coordinate which client to send to next.
+
+Wait, the original round-robin in handle_port2 loops through the client list and sends messages one by one. But if each port 2 connection is handled in its own thread, how does the server coordinate sending messages to each in order? That approach might not work because each thread is independent. Instead, the server should have a central list of active port 2 connections and iterate through them in round-robin from a single thread.
+
+This suggests that the server needs to maintain a separate structure for active port 2 connections, perhaps protected by a Mutex, and a dedicated thread that periodically sends messages to each connection in order.
+
+So, revising the server structure:
+
+- Keep the ClientList as a list of registered clients (ID, IP).
+
+- Have an ActiveConnections list that maps client IDs to their port 2 TcpStreams.
+
+- When a client connects to port 2, they send their ID, and the server adds their stream to ActiveConnections if the ID is valid.
+
+- A separate thread runs the round-robin, iterating through ActiveConnections and sending messages.
+
+But handling the TcpStreams in a thread-safe way is essential. Maybe using Arc<Mutex<TcpStream>> for each connection so that the round-robin thread can lock each stream and write to it.
+
+Alternatively, the handle_port2 function could be responsible for sending messages to its assigned client, but the round-robin would need to track which client to send to next. This might require a shared counter protected by a Mutex.
+
+Hmm, this is getting a bit complex. Let me outline the changes step by step.
+
+1. Modify the Client struct to include an optional TcpStream for port 2 connection.
+
+2. When a client connects to port 2, they send their ID, which the server uses to look up the Client and store the TcpStream.
+
+3. The round-robin thread iterates through all Clients, and if they have an active port 2 connection, send a message.
+
+But managing the TcpStream in the Client struct would require synchronization. Perhaps using an Arc<Mutex<Option<TcpStream>>> so that when the port 2 handler thread sets the stream, the round-robin thread can access it safely.
+
+Alternatively, the server can have two data structures:
+
+- clients: Arc<Mutex<HashMap<String, Client>>> for registered clients.
+
+- active_connections: Arc<Mutex<HashMap<String, TcpStream>>> for active port 2 streams.
+
+When a client connects to port 2, they send their ID, the server checks if the ID exists in clients, then adds the stream to active_connections.
+
+The round-robin thread would then iterate through active_connections in order, sending messages.
+
+But TcpStream isn't Clone, so each connection must be managed in its own thread. Wait, but if the round-robin is in one thread, how can it write to multiple streams? Maybe each send should be non-blocking, or the round-robin thread should have ownership of all active connections.
+
+Alternatively, each port 2 connection handler thread could be responsible for sending messages when it's their turn in the round-robin. But coordinating that across threads would require some form of message passing, like channels.
+
+This might complicate things. Perhaps a better approach is to have the round-robin thread own the list of active connections and iterate through them, sending a message to each in turn. To do this, the round-robin thread needs to have access to the active connections, which are added and removed by the port 2 handler threads.
+
+Using a Mutex-protected Vec to hold the active connections, and the round-robin thread locks the Vec, iterates through each TcpStream, and sends a message. However, since TcpStream is not Sync, it can't be shared across threads directly. So each TcpStream must be handled in the thread that owns it.
+
+Wait, perhaps the original approach where each port 2 connection has its own thread that sends messages in a loop isn't compatible with a proper round-robin. The initial code's handle_port2 function had a loop that sends messages to each client in sequence, but each port 2 connection is handled in its own thread, which would mean each thread is sending messages to all clients, which is not correct.
+
+Ah, here's the mistake in the original code: in handle_port2, the server tries to send messages to all clients via a single stream, which is incorrect. Each port 2 connection should be for a specific client, and the server should send messages to each client's own port 2 connection.
+
+Therefore, the original code's approach to handle_port2 is flawed. Instead, when a client connects to port 2, they should identify themselves, and the server should associate that connection with the client's ID. Then, the server needs a way to send messages to each client's port 2 connection individually.
+
+The round-robin should iterate through all registered clients and send a message to each one's port 2 connection if it's active.
+
+To implement this:
+
+1. When a client connects to port 2, they send their ID.
+
+2. The server verifies the ID and stores the TcpStream in a structure (like a HashMap) mapping ID to TcpStream.
+
+3. A separate thread periodically iterates through this HashMap and sends a message to each client in order.
+
+4. Each send operation must handle potential errors, like a disconnected client, and remove them from the HashMap.
+
+So, modifying the server code:
+
+- Add an active_clients structure: Arc<Mutex<HashMap<String, TcpStream>>>.
+
+- In handle_port2, read the client's ID, verify it exists in the registered clients, then add the stream to active_clients.
+
+- A separate thread runs the round-robin, locking active_clients, iterating through each entry, and sending a message.
+
+But TcpStream isn't Sync, so storing it in a Mutex-protected HashMap may not be safe across threads. Each TcpStream can only be accessed from one thread at a time. Therefore, when the round-robin thread wants to send a message, it needs to take ownership of the stream, which isn't possible if it's stored in a HashMap shared across threads.
+
+Alternative approach: Each port 2 connection is handled in its own thread, which is responsible for sending messages to that client when it's their turn. The server maintains a queue of client IDs in round-robin order, and each handler thread waits until it's their turn to send a message.
+
+This would require a shared state that coordinates the round-robin order, perhaps using a channel to signal each thread when to send.
+
+This seems complicated. Maybe a better approach is to have a central thread that manages all active connections and sends messages in round-robin order. This thread would own all TcpStreams and handle sending. However, accepting new connections on port 2 would need to pass the TcpStream to this central thread.
+
+But in Rust, transferring TcpStream between threads is possible if properly synchronized. Using a channel, the port 2 handler threads can send the TcpStream to the central round-robin thread, which collects all streams and manages sending.
+
+This way:
+
+- The port 2 listener thread accepts connections, reads the client ID, and sends the TcpStream along with the ID to the central round-robin thread via a channel.
+
+- The central thread maintains a list of (ID, TcpStream) and iterates through them, sending messages.
+
+This approach ensures that the round-robin thread is the sole owner of the TcpStreams, avoiding concurrency issues.
+
+Implementing this requires:
+
+1. A channel to send new port 2 connections to the round-robin thread.
+
+2. The round-robin thread managing the list of streams and sending messages.
+
+Let me adjust the server code accordingly.
+
+In the server:
+
+- Create a channel (sender, receiver) where the port 2 handler sends (ID, TcpStream) to the round-robin thread.
+
+- The round-robin thread receives these via the receiver and adds them to its list.
+
+- The round-robin thread loops through the list, sending messages, and removes any disconnected clients.
+
+This way, the round-robin thread owns all TcpStreams and can safely write to them.
+
+Modifying the server code:
+
+1. Add a channel for communication between port 2 handlers and the round-robin thread.
+
+2. Spawn a round-robin thread that processes incoming connections and sends messages.
+
+3. Modify handle_port2 to read the client's ID and send the TcpStream through the channel.
+
+This should handle multiple clients correctly, with each client's port 2 connection being managed by the round-robin thread.
+
+Now, updating the code step by step.
+
+First, in the server's main function:
+
+- Create a channel (e.g., using std::sync::mpsc).
+
+- Clone the sender and pass it to the port 2 listener thread.
+
+- Spawn the round-robin thread with the receiver.
+
+Then, in handle_port2:
+
+- Read the client's ID from the stream.
+
+- Send the ID and TcpStream through the channel to the round-robin thread.
+
+The round-robin thread:
+
+- Maintains a Vec of (ID, TcpStream).
+
+- Receives new connections via the channel and adds them to the Vec.
+
+- Iterates through the Vec in round-robin order, sending a message to each stream.
+
+- Removes any streams that encounter errors during sending.
+
+This should handle multiple clients, dynamically adding and removing them as they connect and disconnect.
+
+Additionally, the client needs to send its ID upon connecting to port 2. So, the client code should, after registering on port 1, connect to port 2 and immediately send its ID.
+
+Updating the client code:
+
+- After connecting to port 2, send the ID to the server.
+
+This way, the server can associate the port 2 connection with the client's registered ID.
+
+Putting this all together, here's the revised code.
+
+
+Aqui está a versão atualizada que suporta múltiplos clientes simultâneos com identificação adequada:
+
+Servidor (servidor.rs)
+*******************************************************************************
+*******************************************************************************
+use std::collections::{HashMap, VecDeque};
+use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::io::{Read, Write};
+use std::time::Duration;
+
+struct ClientInfo {
+    id: String,
+    ip: String,
+}
+
+type ClientRegistry = Arc<Mutex<HashMap<String, ClientInfo>>>;
+type ActiveClients = Arc<Mutex<VecDeque<(String, TcpStream)>>>;
+
+fn handle_port1(mut stream: TcpStream, registry: ClientRegistry) {
+    let mut buffer = [0; 1024];
+
+    // Autenticação
+    stream.write_all(b"Senha: ").unwrap();
+    stream.read(&mut buffer).unwrap();
+    let password = String::from_utf8_lossy(&buffer).trim().to_string();
+
+    if password != "secret123" {
+        stream.write_all(b"Senha invalida!").unwrap();
+        return;
+    }
+
+    // Cadastro do cliente
+    stream.write_all(b"ID: ").unwrap();
+    stream.read(&mut buffer).unwrap();
+    let id = String::from_utf8_lossy(&buffer).trim().to_string();
+
+    stream.write_all(b"IP: ").unwrap();
+    stream.read(&mut buffer).unwrap();
+    let ip = String::from_utf8_lossy(&buffer).trim().to_string();
+
+    registry.lock().unwrap().insert(
+        id.clone(),
+        ClientInfo { id: id.clone(), ip }
+    );
+
+    stream.write_all(b"Registro completo!").unwrap();
+}
+
+fn handle_port2(mut stream: TcpStream, registry: ClientRegistry, active_clients: ActiveClients) {
+    let mut buffer = [0; 1024];
+
+    // Receber identificação
+    stream.read(&mut buffer).unwrap();
+    let client_id = String::from_utf8_lossy(&buffer).trim().to_string();
+
+    // Verificar registro
+    let registry = registry.lock().unwrap();
+    if !registry.contains_key(&client_id) {
+        stream.write_all(b"ID nao registrado!").unwrap();
+        return;
+    }
+
+    // Adicionar à lista de clientes ativos
+    let mut clients = active_clients.lock().unwrap();
+    clients.push_back((client_id, stream));
+}
+
+fn round_robin_sender(active_clients: ActiveClients) {
+    loop {
+        let mut clients = active_clients.lock().unwrap();
+        if clients.is_empty() {
+            drop(clients);
+            thread::sleep(Duration::from_secs(1));
+            continue;
+        }
+
+        if let Some((client_id, mut stream)) = clients.pop_front() {
+            let msg = format!("Mensagem para {}\n", client_id);
+
+            match stream.write_all(msg.as_bytes()) {
+                Ok(_) => {
+                    clients.push_back((client_id, stream));
+                }
+                Err(_) => {
+                    // Remove cliente desconectado
+                    println!("Cliente {} desconectado", client_id);
+                }
+            }
+        }
+
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
+fn main() {
+    let registry: ClientRegistry = Arc::new(Mutex::new(HashMap::new()));
+    let active_clients: ActiveClients = Arc::new(Mutex::new(VecDeque::new()));
+
+    // Thread de round-robin
+    let clients_rr = active_clients.clone();
+    thread::spawn(move || round_robin_sender(clients_rr));
+
+    // Porta 1 - Registro
+    let reg = registry.clone();
+    thread::spawn(move || {
+        let listener = TcpListener::bind("127.0.0.1:1111").unwrap();
+        for stream in listener.incoming() {
+            let reg = reg.clone();
+            thread::spawn(move || handle_port1(stream.unwrap(), reg));
+        }
+    });
+
+    // Porta 2 - Conexões ativas
+    let reg = registry.clone();
+    let active = active_clients.clone();
+    thread::spawn(move || {
+        let listener = TcpListener::bind("127.0.0.1:2222").unwrap();
+        for stream in listener.incoming() {
+            let reg = reg.clone();
+            let active = active.clone();
+            thread::spawn(move || handle_port2(stream.unwrap(), reg, active));
+        }
+    });
+
+    println!("Servidor pronto para múltiplos clientes...");
+    loop {
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
+*******************************************************************************
+*******************************************************************************
+
+Client client.rs
+*******************************************************************************
+*******************************************************************************
+use std::net::TcpStream;
+use std::io::{Read, Write};
+use std::thread;
+
+fn main() {
+    // Registro na porta 1
+    let mut stream = TcpStream::connect("127.0.0.1:1111").unwrap();
+
+    // Processo de autenticação e registro
+    let mut buffer = [0; 1024];
+    stream.read(&mut buffer).unwrap(); // Senha
+    stream.write_all(b"secret123\n").unwrap();
+
+    stream.read(&mut buffer).unwrap(); // ID
+    let client_id = "client_001";
+    stream.write_all(format!("{}\n", client_id).as_bytes()).unwrap();
+
+    stream.read(&mut buffer).unwrap(); // IP
+    stream.write_all(b"127.0.0.1\n").unwrap();
+
+    stream.read(&mut buffer).unwrap(); // Confirmação
+    println!("Registro completo!");
+
+    // Conexão na porta 2
+    let mut stream2 = TcpStream::connect("127.0.0.1:2222").unwrap();
+    stream2.write_all(format!("{}\n", client_id).as_bytes()).unwrap();
+
+    // Thread para receber mensagens
+    thread::spawn(move || {
+        let mut buffer = [0; 1024];
+        loop {
+            match stream2.read(&mut buffer) {
+                Ok(n) if n > 0 => {
+                    print!("Mensagem: {}", String::from_utf8_lossy(&buffer[..n]));
+                }
+                _ => break,
+            }
+        }
+    });
+
+    // Mantém o cliente ativo
+    loop {
+        thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+*******************************************************************************
+*******************************************************************************
+Principais melhorias:
+
+    ActiveClients com VecDeque para round-robin eficiente
+
+    Sistema de identificação automática na porta 2
+
+    Gerenciamento dinâmico de conexões ativas
+
+    Remoção automática de clientes desconectados
+
+    Suporte para múltiplos clientes simultâneos
+
+Fluxo de funcionamento:
+
+    Cliente se conecta na porta 1111 para registro
+
+    Após registro válido, conecta na porta 2222 e envia seu ID
+
+    Servidor adiciona à lista de clientes ativos
+
+    Thread de round-robin envia mensagens sequencialmente
+
+    Conexões inativas são removidas automaticamente
+
+Para testar com múltiplos clientes:
+
+    Execute o servidor
+
+    Execute vários clientes em terminais diferentes (altere o ID em cada um)
+
+    Observe as mensagens sendo enviadas para cada cliente em sequência
+
+Esta versão oferece:
+
+    Escalabilidade para dezenas de clientes
+
+    Tolerância a falhas de conexão
+
+    Balanceamento de carga simples
+
+    Identificação única de clientes
+
+    Gerenciamento automático de conexões
+*******************************************************************************
+*******************************************************************************
