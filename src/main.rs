@@ -95,8 +95,11 @@ fn handle_client(mut stream: TcpStream, clients: Arc<Mutex<Vec<ClientData>>>) {
     let client_id = String::from_utf8_lossy(&buffer[..n]).trim().to_string();
 
     if find_client_by_id(&clients, &client_id){
-        stream.shutdown(Shutdown::Both).unwrap();
         println!("Already has a client with this ID {}",client_id);
+        if let Err(e) = stream.write(b"You are now DESconnected.\n") {
+            eprintln!("Failed to write to socket: {}", e);
+        }
+        stream.shutdown(Shutdown::Both).unwrap();
         return;
     } 
 
