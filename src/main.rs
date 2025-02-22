@@ -4,6 +4,9 @@ use std::thread;
 use std::time::Duration;
 use std::sync::{Arc, Mutex};
 
+pub mod config;
+use config::Config;
+
 // Struct to store client data
 #[derive(Debug, Clone)]
 struct ClientData {
@@ -12,10 +15,10 @@ struct ClientData {
     status: String, // "active" or "inactive"
 }
 
-static mut counter: u64 = 0;
-static mut msgcode: u16 = 100;
+static mut COUNTER: u64 = 0;
+static mut MSGCODE: u16 = 100;
 //static mut padded_string: String = "Message to cliente".to_string();
-static mut padded_string: &str = "Shutdown: Message ";
+static mut PADDED_STRING: &str = "Shutdown: Message ";
 
 //Search client by ID
 /*
@@ -44,7 +47,7 @@ fn find_client_by_id(clients: &Arc<Mutex<Vec<ClientData>>>, target_id: &str) -> 
 }
 
 // Function to handle client connections
-fn handle_client(mut stream: TcpStream, clients: Arc<Mutex<Vec<ClientData>>>) {
+fn handle_client(mut stream: TcpStream,config: Config ,clients: Arc<Mutex<Vec<ClientData>>>) {
     let mut buffer = [0; 512];
     let client_ip = stream.peer_addr().unwrap().to_string();
     println!("Thread spawned for client: {}", client_ip);
@@ -68,7 +71,7 @@ fn handle_client(mut stream: TcpStream, clients: Arc<Mutex<Vec<ClientData>>>) {
     let received_password = String::from_utf8_lossy(&buffer[..n]).trim().to_string();
 
     // Predefined password (e.g., "1234")
-    let correct_password = "1234";
+    let correct_password = config::get_password(&config); //"1234";
 
     // Validate the password
     if received_password == correct_password {
@@ -165,7 +168,7 @@ fn handle_client(mut stream: TcpStream, clients: Arc<Mutex<Vec<ClientData>>>) {
         }
     }
 }
-fn handle_port1( listener: TcpListener, clients: Arc<Mutex<Vec<ClientData>>>){
+fn handle_port1( listener: TcpListener,config: Config , clients: Arc<Mutex<Vec<ClientData>>>){
     // Accept connections in a loop
     for stream in listener.incoming() {
         match stream {
@@ -173,8 +176,9 @@ fn handle_port1( listener: TcpListener, clients: Arc<Mutex<Vec<ClientData>>>){
                 println!("New connection from: {:?} on port 1", stream.peer_addr());
                 // Spawn a new thread to handle the connection
                 let clients = Arc::clone(&clients);
+                let config: Config =config.clone();
                 thread::spawn(move || {
-                    handle_client(stream, clients);
+                    handle_client(stream,config,clients);
                 });
             }
             Err(e) => {
@@ -185,32 +189,30 @@ fn handle_port1( listener: TcpListener, clients: Arc<Mutex<Vec<ClientData>>>){
 
 }
 
-fn handle_client_for_port2(mut stream: TcpStream, clients: Arc<Mutex<Vec<ClientData>>>) -> ! {
+fn handle_client_for_port2(mut stream: TcpStream) -> ! {
     let client_ip = stream.peer_addr().unwrap().to_string();
     println!("Thread spawned for client: {}", client_ip);
-    //let mut msg= "Message to clients {}\n".to_string();
     // Main loop to handle client
     loop {
         
         unsafe{         
-            let resultado =  format!("{} {} {}",msgcode, padded_string, counter);   
-            // let mut msg= "Message to clients ".to_string() + &padded_string;
+            let resultado =  format!("{} {} {}",MSGCODE, PADDED_STRING, COUNTER);   
             stream.write( resultado.as_bytes()  ).unwrap();
         }
     thread::sleep(Duration::from_secs(10));
     }
 }
 
-fn handle_port2( listener: TcpListener, clients: Arc<Mutex<Vec<ClientData>>>){
+fn handle_port2( listener: TcpListener){
     // Accept connections in a loop
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
                 println!("New connection from: {:?} in port 2", stream.peer_addr());
                 // Spawn a new thread to handle the connection
-                let clients = Arc::clone(&clients);
+
                 thread::spawn(move || {
-                    handle_client_for_port2(stream, clients);
+                    handle_client_for_port2(stream);
                 });
             }
             Err(e) => {
@@ -234,28 +236,41 @@ fn list_connected_clients(clients: &Arc<Mutex<Vec<ClientData>>>) -> String {
     }
     result
 }
+
 fn main() -> std::io::Result<()> {
-    let listener1 = TcpListener::bind("127.0.0.1:1111")?;
-    println!("Server listening on port 1111");
-    let listener2 = TcpListener::bind("127.0.0.1:2222")?;
-    println!("Server listening on port 2222");
+
+    config::helper();
+    let conf: Config = config::get_configuration();
+
+    //println!("passwd:   {}", config::get_password(&conf));
+    //println!("Host ip:  {}", config::get_hostip(&conf));
+    //println!("port  1:  {}", config::get_port1(&conf));
+    //println!("port  2:  {}", config::get_port2(&conf));
+
+    let hostip_port1: String = config::get_hostip(&conf)+":"+&config::get_port1(&conf) ;
+    println!("Server listening on port {}",hostip_port1);
+
+    let listener1 = TcpListener::bind(hostip_port1)?;
+
+    let hostip_port2: String = config::get_hostip(&conf)+":"+&config::get_port2(&conf) ;
+    println!("Server listening on port {}",hostip_port2);
+    let listener2 = TcpListener::bind(hostip_port2)?;
 
     // Shared list of clients (thread-safe)
 
     let clients = Arc::new(Mutex::new(Vec::<ClientData>::new()));
     thread::spawn(move || {
-        handle_port1(listener1,clients);
+        handle_port1(listener1,conf.clone(), clients);
     });
 
-    let clients = Arc::new(Mutex::new(Vec::<ClientData>::new()));
     thread::spawn(move || {
-        handle_port2(listener2,clients);
+        handle_port2(listener2);
     });
 
     println!("Servidor operacional!");
     loop {
         unsafe{
-            counter+=1;
+            COUNTER+=1;
         }
         thread::sleep(Duration::from_secs(11));
     }
