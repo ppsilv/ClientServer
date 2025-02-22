@@ -1,4 +1,4 @@
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, Shutdown};
 use std::io::{Read, Write};
 use std::thread;
 use std::time::Duration;
@@ -11,6 +11,38 @@ struct ClientData {
     ip: String,
     status: String, // "active" or "inactive"
 }
+
+static mut counter: u64 = 0;
+static mut msgcode: u16 = 100;
+//static mut padded_string: String = "Message to cliente".to_string();
+static mut padded_string: &str = "Shutdown: Message ";
+
+//Search client by ID
+/*
+fn find_client_by_id(clients: &[ClientData], target_id: &str) -> Option<&ClientData> {
+    for client in clients {
+        if client.id == target_id {
+            return Some(client);
+        }
+    }
+    None // Return None if no matching client is found
+}
+*/
+fn find_client_by_id(clients: &Arc<Mutex<Vec<ClientData>>>, target_id: &str) -> bool {
+    // Acquire the lock on the Mutex
+    let clients = clients.lock().unwrap();
+
+    // Iterate over the clients and check for a matching ID
+    for client in clients.iter() {
+        if client.id == target_id {
+            return true;
+        }
+    }
+
+    // Return false if no matching client is found
+    false
+}
+
 // Function to handle client connections
 fn handle_client(mut stream: TcpStream, clients: Arc<Mutex<Vec<ClientData>>>) {
     let mut buffer = [0; 512];
@@ -62,6 +94,12 @@ fn handle_client(mut stream: TcpStream, clients: Arc<Mutex<Vec<ClientData>>>) {
     };
     let client_id = String::from_utf8_lossy(&buffer[..n]).trim().to_string();
 
+    if find_client_by_id(&clients, &client_id){
+        stream.shutdown(Shutdown::Both).unwrap();
+        println!("Already has a client with this ID {}",client_id);
+        return;
+    } 
+
     // Save the client's data to the list
     let client_data = ClientData {
         id: client_id.clone(),
@@ -71,6 +109,8 @@ fn handle_client(mut stream: TcpStream, clients: Arc<Mutex<Vec<ClientData>>>) {
     clients.lock().unwrap().push(client_data);
 
     println!("Client connected - ID: {}, IP: {}", client_id, client_ip);
+
+
     if let Err(e) = stream.write(b"Thank you! You are now connected.\n") {
         eprintln!("Failed to write to socket: {}", e);
         return;
@@ -127,7 +167,7 @@ fn handle_port1( listener: TcpListener, clients: Arc<Mutex<Vec<ClientData>>>){
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                println!("New connection from: {:?}", stream.peer_addr());
+                println!("New connection from: {:?} on port 1", stream.peer_addr());
                 // Spawn a new thread to handle the connection
                 let clients = Arc::clone(&clients);
                 thread::spawn(move || {
@@ -142,14 +182,19 @@ fn handle_port1( listener: TcpListener, clients: Arc<Mutex<Vec<ClientData>>>){
 
 }
 
-fn handle_client_for_port2(mut stream: TcpStream, clients: Arc<Mutex<Vec<ClientData>>>) {
+fn handle_client_for_port2(mut stream: TcpStream, clients: Arc<Mutex<Vec<ClientData>>>) -> ! {
     let client_ip = stream.peer_addr().unwrap().to_string();
     println!("Thread spawned for client: {}", client_ip);
-
+    //let mut msg= "Message to clients {}\n".to_string();
     // Main loop to handle client
     loop {
-        stream.write(b"Message to clients\n");
-        thread::sleep(Duration::from_secs(10));
+        
+        unsafe{         
+            let resultado =  format!("{} {} {}",msgcode, padded_string, counter);   
+            // let mut msg= "Message to clients ".to_string() + &padded_string;
+            stream.write( resultado.as_bytes()  ).unwrap();
+        }
+    thread::sleep(Duration::from_secs(10));
     }
 }
 
@@ -158,7 +203,7 @@ fn handle_port2( listener: TcpListener, clients: Arc<Mutex<Vec<ClientData>>>){
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                println!("New connection from: {:?}", stream.peer_addr());
+                println!("New connection from: {:?} in port 2", stream.peer_addr());
                 // Spawn a new thread to handle the connection
                 let clients = Arc::clone(&clients);
                 thread::spawn(move || {
@@ -190,7 +235,7 @@ fn main() -> std::io::Result<()> {
     let listener1 = TcpListener::bind("127.0.0.1:1111")?;
     println!("Server listening on port 1111");
     let listener2 = TcpListener::bind("127.0.0.1:2222")?;
-    println!("Server listening on port 1111");
+    println!("Server listening on port 2222");
 
     // Shared list of clients (thread-safe)
 
@@ -206,7 +251,10 @@ fn main() -> std::io::Result<()> {
 
     println!("Servidor operacional!");
     loop {
-        thread::sleep(Duration::from_secs(1));
+        unsafe{
+            counter+=1;
+        }
+        thread::sleep(Duration::from_secs(11));
     }
 }
 
