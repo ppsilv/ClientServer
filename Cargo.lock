@@ -71,7 +71,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "servidor5"
+name = "servidor"
 version = "0.1.0"
 dependencies = [
  "serde",

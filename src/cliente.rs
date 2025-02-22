@@ -1,15 +1,18 @@
 
 use std::io::{self, Write, Read};
-use std::thread;
-use std::time::Duration;
+//use std::thread;
+//use std::time::Duration;
 use std::net::{TcpStream, Shutdown};
+//use serde::Deserialize;
 pub mod config;
 use config::Config;
 
-fn main() -> io::Result<()> {
+pub fn cliente() -> io::Result<()> {
     // Connect to the server
-    let mut stream = TcpStream::connect("127.0.0.1:1111")?;
-    println!("Connected to server at 127.0.0.1:1111");
+    let conf: Config = config::get_configuration();
+    let hostip_port1: String = config::get_hostip(&conf)+":"+&config::get_port1(&conf) ;
+    println!("Connected to server at {}",hostip_port1);
+    let mut stream = TcpStream::connect(hostip_port1)?;
 
     let mut buffer = [0; 512];
 
@@ -21,7 +24,7 @@ fn main() -> io::Result<()> {
     // If the password was incorrect, exit
     if prompt.contains("Please send the SENHA") {
         // Send the password to the server
-        let mut password = "1234";
+        let password =  config::get_password(&conf);
         //io::stdin().read_line(&mut password)?;
         stream.write_all(password.trim().as_bytes())?;   
         println!("Password sent...");     
@@ -38,9 +41,9 @@ fn main() -> io::Result<()> {
     }
     if response.contains("Password correct. Please send your ID") {
         // Send the password to the server
-        let mut ID = "1234";
+        let id = config::get_id(&conf);
         //io::stdin().read_line(&mut password)?;
-        stream.write_all(ID.trim().as_bytes())?;   
+        stream.write_all(id.trim().as_bytes())?;   
         println!("ID sent...");     
     }
 
@@ -57,8 +60,9 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    let mut stream = TcpStream::connect("127.0.0.1:2222")?;
-    println!("Connected to server at 127.0.0.1:2222");
+    let hostip_port2: String = config::get_hostip(&conf)+":"+&config::get_port2(&conf) ;
+    println!("Connected to server at {}",hostip_port2);
+    let mut stream = TcpStream::connect(hostip_port2)?;
 
     loop{
         let n = stream.read(&mut buffer)?;
@@ -67,5 +71,5 @@ fn main() -> io::Result<()> {
             println!("100 Shutdown: received");
         }
     }    
-    Ok(())
+    //Ok(())
 }
