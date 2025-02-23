@@ -64,6 +64,20 @@ pub fn cliente() -> io::Result<()> {
     println!("Connected to server at {}",hostip_port2);
     let mut stream = TcpStream::connect(hostip_port2)?;
 
+    // Read the server's prompt for the password
+    let n = stream.read(&mut buffer)?;
+    let prompt = String::from_utf8_lossy(&buffer[..n]);
+    print!("{}", prompt);
+
+    // If the password was incorrect, exit
+    if prompt.contains("Please send the ID:") {
+        // Send the password to the server
+        let id =  config::get_id(&conf);
+        //io::stdin().read_line(&mut password)?;
+        stream.write_all(id.trim().as_bytes())?;   
+        println!("ID sent...");     
+    }
+
     loop{
         let n = stream.read(&mut buffer)?;
         let response = String::from_utf8_lossy(&buffer[..n]);
