@@ -1,6 +1,5 @@
 use std::net::{TcpListener, TcpStream, Shutdown};
 use std::io::{Read, Write};
-use std::os::unix::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 use std::sync::{Arc, Mutex};
@@ -81,7 +80,7 @@ fn update_client_status(
     
 }
 
-fn update_client_port(clients: &mut Vec<ClientData>, target_id: &str, new_port: &str) -> bool {
+fn _update_client_port(clients: &mut Vec<ClientData>, target_id: &str, new_port: &str) -> bool {
     // Search for the client with the matching ID
     if let Some(client) = clients.iter_mut().find(|c| c.id == target_id) {
         // Update the port
@@ -218,20 +217,11 @@ fn handle_port1( listener: TcpListener,config: Config , clients: Arc<Mutex<Vec<C
         match stream {
             Ok(stream) => {
                 println!("New connection from: {:?} on port 1", stream.peer_addr());
-                match stream.peer_addr() {
-                    Ok(socketaddr)=>{
-                        //let client_port = socketaddr; 
-                        // Spawn a new thread to handle the connection
-                        let clients = Arc::clone(&clients);
-                        let config: Config =config.clone();
-                        thread::spawn(move || {
-                            handle_client(stream,config,clients);
-                        });
-                    }
-                    Err(e) => {
-                        eprintln!("Connection error: {}", e);
-                    }
-                }
+                let clients = Arc::clone(&clients);
+                let config: Config =config.clone();
+                thread::spawn(move || {
+                    handle_client(stream,config,clients);
+                });
             }
             Err(e) => {
                 eprintln!("Failed to accept connection: {}", e);
@@ -319,21 +309,11 @@ fn handle_port2( listener: TcpListener, clients: Arc<Mutex<Vec<ClientData>>>){
                 println!("New connection from: {:?} in port 2", stream.peer_addr());
                 let clients1: String = list_connected_clients(&clients);
                 println!("Clientes {}",clients1);
-            
-                match stream.peer_addr() {
-                    Ok(socketaddr)=>{
-                        //let client_port = socketaddr; 
-                        // Spawn a new thread to handle the connection
-                        let clients = Arc::clone(&clients);
-                        thread::spawn(move || {
-                            //let clients = Arc::new(Mutex::new(Vec::<ClientData>::new()));
-                            handle_client_for_port2(stream,clients).unwrap();
-                        });
-                    }
-                    Err(e) => {
-                        eprintln!("Connection error: {}", e);
-                    }
-                }
+                let clients = Arc::clone(&clients);
+                thread::spawn(move || {
+                    //let clients = Arc::new(Mutex::new(Vec::<ClientData>::new()));
+                    handle_client_for_port2(stream,clients).unwrap();
+                });
             }
             Err(e) => {
                 eprintln!("Failed to accept connection: {}", e);
@@ -376,8 +356,8 @@ pub fn servidor() -> std::io::Result<()> {
 
     // Shared list of clients (thread-safe)
 
-    let mut clients = Arc::new(Mutex::new(Vec::<ClientData>::new()));
-    let mut clients2 = Arc::clone(&clients);
+    let clients = Arc::new(Mutex::new(Vec::<ClientData>::new()));
+    let clients2 = Arc::clone(&clients);
     thread::spawn(move || {
         handle_port1(listener1,conf.clone(), clients);
     });
