@@ -16,6 +16,7 @@ struct ServerConfig {
     host: String,
     port1: String,
     port2: String,
+    port3: String
 }
 
 pub fn get_configuration() ->Config { //} Result<(), Box<dyn std::error::Error>> {
@@ -53,3 +54,6 @@ pub fn get_port2(config: &Config) ->String{
     config.server.port2.clone()
 }
 
+pub fn get_port3(config: &Config) ->String{
+    config.server.port3.clone()
+}
