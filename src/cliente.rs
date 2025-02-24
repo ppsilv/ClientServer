@@ -79,6 +79,11 @@ pub fn cliente() -> io::Result<()> {
         if response.contains("100:") {
             log::info!("Client:{} msg {}",config::get_id(&conf),response);
         }
+        if response.contains("110:") {
+            log::info!("Client:{} msg {}",config::get_id(&conf),response);
+            stream.write_all(config::get_id(&conf).trim().as_bytes())?;       
+            log::info!("Client: id sent.");            
+        }
     }    
     Ok(())
 }

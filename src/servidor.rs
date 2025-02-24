@@ -22,6 +22,8 @@ struct ClientData {
 static mut COUNTER: u64 = 0;
 static MSGCODE100: u16 = 100;
 static PADDED_STRING100: &str = ": keep alive ";
+static MSGCODE110: u16 = 110;
+static PADDED_STRING110: &str = ": id_from_client ";
 
 
 fn save_client_data(clients: &Arc<Mutex<Vec<ClientData>>>, client_id: u16, client_ip: String,client_port: String ){
@@ -118,9 +120,49 @@ fn list_connected_clients(clients: &Arc<Mutex<Vec<ClientData>>>) -> String {
     result
 }
 
-// Function to handle client connections
-fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: Arc<Mutex<Vec<ClientData>>>){
+fn handle_read_client(mut stream: TcpStream,client_id: u16, clients: &Arc<Mutex<Vec<ClientData>>>) {
     let mut buffer = [0; 512];
+    println!("New client connected: {}", stream.peer_addr().unwrap());
+    let id_from_client: String = "".to_string();
+
+    loop {
+        // Read data from the client
+        match stream.read(&mut buffer) {
+            Ok(0) => {
+                //stream.shutdown(Shutdown::Both).unwrap();
+                // Client disconnected
+                log::error!("Client ID {} disconnected .", client_id);
+                // Update the client's status to "inactive"
+                if update_client_status( &clients,client_id,"inactive"){
+                    log::info!("Server: Cliente Id {} inativado...",client_id);
+                }
+            break;
+            }
+            Ok(n) => {
+                // Echo the data back to the client
+
+                let received_data = String::from_utf8_lossy(&buffer[..n]);
+                log::info!("Server: Received: {}", received_data);
+
+                if let Err(e) = stream.write(&buffer[..n]) {
+                    log::error!("Server: Failed to write to client: {}", e);
+                    break;
+                }
+            }
+            Err(e) => {
+                log::error!("Server: Failed to read from client: {}", e);
+                break;
+            }
+        }
+        // Simulate some processing time
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
+// Function to handle client connections
+fn handle_write_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: Arc<Mutex<Vec<ClientData>>>){
+   
+    let mut buffer_read = [0; 512]; // Fixed-size byte buffer
     let client_addr = stream.peer_addr().unwrap();
     let clientip = stream.peer_addr().unwrap().to_string();
 
@@ -145,7 +187,7 @@ fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: A
     }
 
     // Read the password from the client
-    let n = match stream.read(&mut buffer) {
+    let n = match stream.read(&mut buffer_read) {
         Ok(n) => n,
         Err(e) => {
             log::error!("Server: Failed to read from socket: {}", e);
@@ -154,7 +196,8 @@ fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: A
     };
 
     // Convert the received data to a string and trim whitespace
-    let received_password = String::from_utf8_lossy(&buffer[..n]).trim().to_string();
+    let received_password = String::from_utf8_lossy(&buffer_read[..n]).trim().to_string();
+   
 
     // Predefined password (e.g., "1234")
     let correct_password = config::get_password(&config); //"1234";
@@ -191,12 +234,14 @@ fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: A
         log::error!("Server: Failed to write to socket: {}", e);
         return;
     }
+    let cmd_id_from_client =  format!("{}{}",MSGCODE110, PADDED_STRING110);    
+    let mut buffer: String = cmd_id_from_client;    
+    
 
     // Main loop to handle client
     loop {
         unsafe{         
-            let keep_alive =  format!("{}{} {} {}",MSGCODE100, PADDED_STRING100, client_id ,COUNTER);   
-            match stream.write( keep_alive.as_bytes()  ){
+            match stream.write( buffer.as_bytes() ){
                 Ok(_) => {
                 } // Success
                 Err(e) if e.kind() == ErrorKind::BrokenPipe => {
@@ -214,7 +259,9 @@ fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: A
                     break ;
                 }
             }
-            println!("Server: Message sent {}",keep_alive);
+            let  my_keep_alive =  format!("{}{} {} {}",MSGCODE100, PADDED_STRING100, client_id ,COUNTER);   
+            buffer = my_keep_alive;    
+           // println!("Server: Message sent {}",my_keep_alive);
         }
         thread::sleep(Duration::from_secs(5));
         unsafe{
@@ -222,7 +269,6 @@ fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: A
         }
                
     }
-
 }
 fn handle_port( listener1: TcpListener,mut client_id: u16,config: Config , clients: Arc<Mutex<Vec<ClientData>>>){
     // Accept connections in a loop
@@ -231,16 +277,28 @@ fn handle_port( listener1: TcpListener,mut client_id: u16,config: Config , clien
             Ok(stream) => {
                 //println!("New connection from: {:?} on port 1", stream.peer_addr());
                 let clients = Arc::clone(&clients);
+                let clients1 = Arc::clone(&clients);
+                let config: Config =config.clone();
                 let config: Config =config.clone();
                 // Spawn a thread that panics
                 println!("Lets spawn thread handle_client..");
-
+                // Clone the TcpStream for the second thread
+                let stream_clone = match stream.try_clone() {
+                    Ok(clone) => clone,
+                    Err(e) => {
+                        log::error!("Failed to clone TcpStream: {}", e);
+                        continue;
+                    }
+                };
                 let new_client = find_first_inactive(&clients);
                 if new_client > 0 {
                     client_id = new_client;
                 } 
                 thread::spawn(move|| {
-                    handle_client(stream,client_id,config,clients);
+                    handle_write_client(stream,client_id,config,clients);
+                });
+                thread::spawn(move|| {
+                    handle_read_client(stream_clone,client_id,&clients1);
                 });
               
             }
@@ -304,13 +362,13 @@ fn handle_read_client_port3(mut stream: TcpStream, clients: Arc<Mutex<Vec<Client
             Ok(n) => {
                 // Echo the data back to the client
                 let received_data = String::from_utf8_lossy(&buffer[..n]);
-                log::info!("Server: Received: {}", received_data);
+                log::info!("handle_read_client_port3:Server: Received: {}", received_data);
                 // Handle the LISTAR command
                 if received_data.trim() == "LISTAR" {
                     let clients_list = list_connected_clients(&clients);
                    
                     if let Err(e) = stream.write(clients_list.as_bytes()) {
-                        log::error!("Failed to write to socket: {}", e);
+                        log::error!("handle_read_client_port3:Failed to write to socket: {}", e);
                         break;
                     }
                     continue;
