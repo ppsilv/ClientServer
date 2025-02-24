@@ -34,7 +34,7 @@ pub fn cliente() -> io::Result<()> {
     // Read the server's prompt for the password
     let n = stream.read(&mut buffer)?;
     let prompt = String::from_utf8_lossy(&buffer[..n]);
-    print!("{}", prompt);
+    println!("Response linha 37{}", prompt);
 
     // If the password was incorrect, exit
     if prompt.contains("Please send the SENHA") {
@@ -42,59 +42,35 @@ pub fn cliente() -> io::Result<()> {
         let password =  config::get_password(&conf);
         //io::stdin().read_line(&mut password)?;
         stream.write_all(password.trim().as_bytes())?;       
+        log::info!("Client: Password sent.");
     }
 
     // Read the server's response to the password
     let n = stream.read(&mut buffer)?;
-    let response = String::from_utf8_lossy(&buffer[..n]);
-    //print!("{}", response);
+    let response: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&buffer[..n]);
+    println!("Response linha 51 {}", response);
 
     // If the password was incorrect, exit
     if response.contains("Invalid password") {
         return Ok(());
     }
-    if response.contains("Password correct. Please send your ID") {
-        // Send the password to the server
-        let id = config::get_id(&conf);
-        //io::stdin().read_line(&mut password)?;
-        stream.write_all(id.trim().as_bytes())?;   
-        log::info!("Client: {} running...",id);
-        //println!("ID sent...");     
-    }
 
     // Read the server's response
-    let n = stream.read(&mut buffer)?;
-    let response = String::from_utf8_lossy(&buffer[..n]);
-    //print!("Server response: {}", response);
+    //let n = stream.read(&mut buffer)?;
+    //let response = String::from_utf8_lossy(&buffer[..n]);
+    //println!("Response linha 61 {}", response);
 
-    stream.shutdown(Shutdown::Both)?;
+//    stream.shutdown(Shutdown::Both)?;
 
     if response.contains("You are now connected") {
         log::info!("Client: The server autorized my connection");
     }else{
+        log::info!("Client: Erro verificando se connected");
         return Ok(());
     }
 
-    let hostip_port2: String = config::get_hostip(&conf)+":"+&config::get_port2(&conf) ;
-    log::info!("Client: Connected to server at {}",hostip_port2);
-    let mut stream = TcpStream::connect(hostip_port2)?;
-
-    // Read the server's prompt for the password
-    let n = stream.read(&mut buffer)?;
-    let prompt = String::from_utf8_lossy(&buffer[..n]);
-    print!("{}", prompt);
-
-    // If the password was incorrect, exit
-    if prompt.contains("Please send the ID:") {
-        // Send the password to the server
-        let id =  config::get_id(&conf);
-        //io::stdin().read_line(&mut password)?;
-        stream.write_all(id.trim().as_bytes())?;   
-        //println!("ID sent...");     
-    }
     
-    loop{
-        
+    loop{        
         let n = stream.read(&mut buffer)?;
         let response = String::from_utf8_lossy(&buffer[..n]);
         unsafe{
@@ -105,7 +81,7 @@ pub fn cliente() -> io::Result<()> {
             }
         }
         if response.contains("100:") {
-            log::info!("Client: {}",response);
+            log::info!("Client:{} msg {}",config::get_id(&conf),response);
         }
     }    
     Ok(())
