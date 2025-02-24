@@ -23,6 +23,17 @@ static mut COUNTER: u64 = 0;
 static MSGCODE100: u16 = 100;
 static PADDED_STRING100: &str = ": keep alive ";
 
+/// Finds the first inactive client and returns its ID.
+/// Returns 0 if no inactive clients are found.
+fn find_first_inactive(clients: &Arc<Mutex<Vec<ClientData>>>) -> u16 {
+    let clients = clients.lock().unwrap();
+    for client in clients.iter()  {
+        if client.status == "inactive" {
+            return client.id; // Return the ID of the first inactive client
+        }
+    }
+    0 // Return 0 if no inactive clients are found
+}
 fn find_client_by_id(clients: &Arc<Mutex<Vec<ClientData>>>, target_id: u16) -> u8 {
     // Acquire the lock on the Mutex
     let clients = clients.lock().unwrap();
@@ -214,7 +225,7 @@ fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: A
     }
 
 }
-fn handle_port( listener1: TcpListener,client_id: u16,config: Config , clients: Arc<Mutex<Vec<ClientData>>>){
+fn handle_port( listener1: TcpListener,mut client_id: u16,config: Config , clients: Arc<Mutex<Vec<ClientData>>>){
     // Accept connections in a loop
     for stream in listener1.incoming() {
         match stream {
@@ -223,20 +234,22 @@ fn handle_port( listener1: TcpListener,client_id: u16,config: Config , clients: 
                 let clients = Arc::clone(&clients);
                 let config: Config =config.clone();
                 // Spawn a thread that panics
-                let handle = thread::spawn(move|| {
+                println!("Lets spawn thread handle_client..");
+                let mut new_client: u16 = client_id;
+                new_client = find_first_inactive(&clients);
+                if new_client > 0 {
+                    client_id = new_client;
+                } 
+                thread::spawn(move|| {
                     handle_client(stream,client_id,config,clients);
                 });
-
-                // Handle the thread's result
-                match handle.join() {
-                    Ok(_) => println!("Thread completed successfully."),
-                    Err(_) => println!("Thread panicked!"),
-                }                
+              
             }
             Err(e) => {
                 log::error!("Failed to accept connection: {}", e);
             }
         }
+        client_id += 10;
     }
 }
 
@@ -282,6 +295,7 @@ pub fn servidor() -> std::io::Result<()> {
 
 
     loop {
+        println!("Estou na thread principal...");
         thread::sleep(Duration::from_secs(11));
     }
 }

@@ -30,7 +30,7 @@ pub fn cliente() -> io::Result<()> {
     let mut stream = TcpStream::connect(hostip_port1)?;
 
     let mut buffer = [0; 512];
-
+println!("Esperando a mensagem password");
     // Read the server's prompt for the password
     let n = stream.read(&mut buffer)?;
     let prompt = String::from_utf8_lossy(&buffer[..n]);
@@ -44,6 +44,7 @@ pub fn cliente() -> io::Result<()> {
         stream.write_all(password.trim().as_bytes())?;       
         log::info!("Client: Password sent.");
     }
+    println!("Esperando a mensagem password OK");
 
     // Read the server's response to the password
     let n = stream.read(&mut buffer)?;
