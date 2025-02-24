@@ -67,6 +67,7 @@ pub fn cliente() -> io::Result<()> {
 
     
     loop{        
+        //TODO: 🌞 Put a timeout if sever does not send a message in time, shutdown client.
         let n = stream.read(&mut buffer)?;
         let response = String::from_utf8_lossy(&buffer[..n]);
         unsafe{

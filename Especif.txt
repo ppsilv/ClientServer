@@ -1,10 +1,11 @@
 
 Aplicação client/server em rust
 1 - Server
-2 - Server aguarda conexao em 2 portas
+2 - Server aguarda conexao 
 2.1 - Server pede uma senha para o client que conectou na porta 1
 2.2 - Server valida a senha do cliente se foi válida continua e cadastra se a senha for incorreta termina a conexão
-3 - Server na porta 1 ele cadastra o client que conectou, pedindo o ID e o IP do cliente
+3 - Server na porta 1 ele cadastra o client que conectou, com um ID fornecido pelo server
+    e pedindo o ID e o IP do cliente
 4 - Server guarda o ID e o IP do client em uma lista
 5 - Server faz um round robin na lista e envia msg pela porta 2 para cada um dos clientes cadastrados
 

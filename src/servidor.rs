@@ -17,6 +17,7 @@ struct ClientData {
     ip: String,
     status: String, // "active" or "inactive"
     port: String, //Port of client
+    cid: String,
 }
 
 static mut COUNTER: u64 = 0;
@@ -32,6 +33,7 @@ fn save_client_data(clients: &Arc<Mutex<Vec<ClientData>>>, client_id: u16, clien
         ip: client_ip.clone(),
         status: String::from("active"), // Set status to "active"
         port: client_port,
+        cid: String::from("none"),
     };
     clients.lock().unwrap().push(client_data);
 }
@@ -86,6 +88,27 @@ fn update_client_status(clients: &Arc<Mutex<Vec<ClientData>>>,target_id: u16, ne
         false // Return false if the client was not found
     }
 }
+fn update_clients_cid(clients: &Arc<Mutex<Vec<ClientData>>>,target_id: u16, new_cid: String) -> bool {
+    let clients1: String = list_connected_clients(&clients);
+    println!("Clientes {}",clients1);
+
+    // Lock the Mutex and handle poisoning
+    let mut clients_lock = match clients.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            eprintln!("Mutex was poisoned, recovering data...");
+            poisoned.into_inner()
+        }
+    };
+    // Search for the client with the matching ID
+    if let Some(client) = clients_lock.iter_mut().find(|c| { c.id == target_id  }) {
+        // Update the status
+        client.cid = new_cid;
+        true // Return true if the client was found and updated
+    } else {
+        false // Return false if the client was not found
+    }
+}
 
 fn _update_client_port(clients: &mut Vec<ClientData>, target_id: u16, new_port: &str) -> bool {
     // Search for the client with the matching ID
@@ -115,7 +138,7 @@ fn list_connected_clients(clients: &Arc<Mutex<Vec<ClientData>>>) -> String {
 
     let mut result = String::from("Connected clients:\n");
     for client in clients.iter() {
-        result.push_str(&format!("ID: {}, IP: {}, Status: {} Port2: {}\n", client.id, client.ip, client.status, client.port));
+        result.push_str(&format!("ID: {}, IP: {}, Status: {} Port2: {} cid {}\n", client.id, client.ip, client.status, client.port, client.cid));
     }
     result
 }
@@ -123,7 +146,7 @@ fn list_connected_clients(clients: &Arc<Mutex<Vec<ClientData>>>) -> String {
 fn handle_read_client(mut stream: TcpStream,client_id: u16, clients: &Arc<Mutex<Vec<ClientData>>>) {
     let mut buffer = [0; 512];
     println!("New client connected: {}", stream.peer_addr().unwrap());
-    let id_from_client: String = "".to_string();
+   // let id_from_client: String = "".to_string();
 
     loop {
         // Read data from the client
@@ -143,7 +166,7 @@ fn handle_read_client(mut stream: TcpStream,client_id: u16, clients: &Arc<Mutex<
 
                 let received_data = String::from_utf8_lossy(&buffer[..n]);
                 log::info!("Server: Received: {}", received_data);
-
+                update_clients_cid(clients,client_id,received_data.to_string());
                 if let Err(e) = stream.write(&buffer[..n]) {
                     log::error!("Server: Failed to write to client: {}", e);
                     break;
@@ -209,7 +232,7 @@ fn handle_write_client(mut stream: TcpStream,client_id: u16,config: Config ,clie
         if let Err(e) = stream.write(b"Invalid password. Closing connection.\n") {
             log::error!("Failed to write to socket: {}", e);
         }
-        log::error!("Client {} provided an incorrect password.", client_ip);
+        log::error!("Server: Client {} provided an incorrect password [{}].", client_ip, received_password);
         return ;
     }
 
@@ -241,6 +264,7 @@ fn handle_write_client(mut stream: TcpStream,client_id: u16,config: Config ,clie
     // Main loop to handle client
     loop {
         unsafe{         
+            //TODO: 🌞  Only send message to active client
             match stream.write( buffer.as_bytes() ){
                 Ok(_) => {
                 } // Success
@@ -364,7 +388,7 @@ fn handle_read_client_port3(mut stream: TcpStream, clients: Arc<Mutex<Vec<Client
                 let received_data = String::from_utf8_lossy(&buffer[..n]);
                 log::info!("handle_read_client_port3:Server: Received: {}", received_data);
                 // Handle the LISTAR command
-                if received_data.trim() == "LISTAR" {
+                if received_data.trim() == "L" || received_data.trim() == "l" {
                     let clients_list = list_connected_clients(&clients);
                    
                     if let Err(e) = stream.write(clients_list.as_bytes()) {
