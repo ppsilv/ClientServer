@@ -26,8 +26,7 @@ pub fn get_configuration() ->Config { //} Result<(), Box<dyn std::error::Error>>
     // Deserialize the JSON into the Config struct
     let config: Config = serde_json::from_str(&config_file).unwrap();
 
-
-    println!("Configuration: {:?}", config);
+    //println!("Configuration: {:?}", config);
     config
 }
 

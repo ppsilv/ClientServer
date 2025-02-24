@@ -23,6 +23,16 @@ static mut COUNTER: u64 = 0;
 static MSGCODE100: u16 = 100;
 static PADDED_STRING100: &str = ": keep alive ";
 
+
+fn save_client_data(clients: &Arc<Mutex<Vec<ClientData>>>, client_id: u16, client_ip: String,client_port: String ){
+    let client_data = ClientData {
+        id: client_id.clone(),
+        ip: client_ip.clone(),
+        status: String::from("active"), // Set status to "active"
+        port: client_port,
+    };
+    clients.lock().unwrap().push(client_data);
+}
 /// Finds the first inactive client and returns its ID.
 /// Returns 0 if no inactive clients are found.
 fn find_first_inactive(clients: &Arc<Mutex<Vec<ClientData>>>) -> u16 {
@@ -113,8 +123,6 @@ fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: A
     let mut buffer = [0; 512];
     let client_addr = stream.peer_addr().unwrap();
     let clientip = stream.peer_addr().unwrap().to_string();
-    let mut client_ip: String = "0000".to_string();
-    let mut client_port: String = "0000".to_string();
 
     // Store the result of `split_once` in a temporary variable
     let (ip, port) = if let Some((ip, port)) = clientip.split_once(':') {
@@ -125,8 +133,8 @@ fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: A
     };
 
     // Now you can safely mutate `client_ip` and `client_port`
-    client_ip = ip.to_string();
-    client_port = port.to_string();
+    let client_ip = ip.to_string();
+    let client_port = port.to_string();
 
     log::info!("Server: Thread spawned for client: {}", client_ip);
 
@@ -172,17 +180,11 @@ fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: A
         return;
     }else if client_result == 0 {
         // Save the client's data to the list
-        let client_data = ClientData {
-            id: client_id.clone(),
-            ip: client_ip.clone(),
-            status: String::from("active"), // Set status to "active"
-            port: client_port,
-        };
-        clients.lock().unwrap().push(client_data);
+        save_client_data(&clients, client_id, client_ip, client_port );
     }else if client_result == 2 {
         update_client_status(&clients, client_id,"active");
     }
-    log::info!("Server: Client connected - ID: {}, IP: {}", client_id, client_ip);
+   // log::info!("Server: Client connected - ID: {}, IP: {}", client_id, client_ip);
     list_connected_clients(&clients);
 
     if let Err(e) = stream.write(b"Thank you! You are now connected.\n") {
@@ -200,13 +202,10 @@ fn handle_client(mut stream: TcpStream,client_id: u16,config: Config ,clients: A
                 Err(e) if e.kind() == ErrorKind::BrokenPipe => {
                     log::error!("Server: Client {} ID {} disconnected abruptly.", client_addr, client_id);
                     log_client_disconnect(client_addr, "broken pipe");
-                    // Update the client's status to "inactive"
-                    //let mut clients: &Arc<Mutex<Vec<ClientData>>> = clients.lock().unwrap();
                 
                     if update_client_status( &clients,client_id,"inactive"){
-                        log::info!("Server: Cliente Id {} inativado...",client_id);     
+                        log::info!("Server: Cliente Id {} inactivated...",client_id);     
                     }
-             
                     break;
                 }
                 Err(e) => {
@@ -235,8 +234,8 @@ fn handle_port( listener1: TcpListener,mut client_id: u16,config: Config , clien
                 let config: Config =config.clone();
                 // Spawn a thread that panics
                 println!("Lets spawn thread handle_client..");
-                let mut new_client: u16 = client_id;
-                new_client = find_first_inactive(&clients);
+
+                let new_client = find_first_inactive(&clients);
                 if new_client > 0 {
                     client_id = new_client;
                 } 
@@ -262,10 +261,6 @@ pub fn servidor() -> std::io::Result<()> {
     log::info!("Server: Server listening on port {}",hostip_port1);
     let listener1 = TcpListener::bind(hostip_port1)?;
 
-    //let hostip_port2: String = config::get_hostip(&conf)+":"+&config::get_port2(&conf) ;
-    //log::info!("Server: Server listening on port {}",hostip_port2);
-    //let listener2 = TcpListener::bind(hostip_port2)?;
-
     let hostip_port3: String = config::get_hostip(&conf)+":"+&config::get_port3(&conf) ;
     log::info!("Server: Server listening on port {}",hostip_port3);
     let listener3 = TcpListener::bind(hostip_port3)?;
@@ -280,14 +275,7 @@ pub fn servidor() -> std::io::Result<()> {
     thread::spawn(move || {
         handle_port(listener1,client_id,conf.clone(),clients);
     });
-    /*
-    thread::spawn(move || {
-        handle_port1(listener1,conf.clone(), clients);
-    });
-    thread::spawn(move || {
-        handle_port2(listener2, clients2);
-    });
-    */
+
     thread::spawn(move || {
         let ( stream, _addr) = listener3.accept().unwrap();
         handle_read_client_port3(stream, clients3).unwrap();
@@ -295,7 +283,6 @@ pub fn servidor() -> std::io::Result<()> {
 
 
     loop {
-        println!("Estou na thread principal...");
         thread::sleep(Duration::from_secs(11));
     }
 }

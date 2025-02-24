@@ -30,11 +30,10 @@ pub fn cliente() -> io::Result<()> {
     let mut stream = TcpStream::connect(hostip_port1)?;
 
     let mut buffer = [0; 512];
-println!("Esperando a mensagem password");
+
     // Read the server's prompt for the password
     let n = stream.read(&mut buffer)?;
     let prompt = String::from_utf8_lossy(&buffer[..n]);
-    println!("Response linha 37{}", prompt);
 
     // If the password was incorrect, exit
     if prompt.contains("Please send the SENHA") {
@@ -44,12 +43,10 @@ println!("Esperando a mensagem password");
         stream.write_all(password.trim().as_bytes())?;       
         log::info!("Client: Password sent.");
     }
-    println!("Esperando a mensagem password OK");
 
     // Read the server's response to the password
     let n = stream.read(&mut buffer)?;
     let response: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&buffer[..n]);
-    println!("Response linha 51 {}", response);
 
     // If the password was incorrect, exit
     if response.contains("Invalid password") {
@@ -59,8 +56,6 @@ println!("Esperando a mensagem password");
     // Read the server's response
     //let n = stream.read(&mut buffer)?;
     //let response = String::from_utf8_lossy(&buffer[..n]);
-    //println!("Response linha 61 {}", response);
-
 //    stream.shutdown(Shutdown::Both)?;
 
     if response.contains("You are now connected") {
